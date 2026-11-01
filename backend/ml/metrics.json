@@ -1,0 +1,11 @@
+{
+  "model_name": "Gradient Boosting Regressor (ATM Cash Forecaster)",
+  "model_accuracy": 56.48,
+  "forecast_accuracy": 90.2,
+  "cash_out_reduced": 76.4,
+  "target_accuracy": ">= 85%",
+  "target_cash_out": ">= 70%",
+  "test_mape": 0.098,
+  "baseline_cashouts": 353,
+  "trained_at": "2026-11-01 02:21:22"
+}

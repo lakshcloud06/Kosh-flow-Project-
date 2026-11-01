@@ -1,0 +1,13 @@
+.env
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+*.sql
+*.db
+ATM_cash_demand.csv
+frontend/dist/
+.vscode/
+/outputs/
+backend/outputs/*.csv
+backend/outputs/*.png
