@@ -134,7 +134,9 @@ export default function DashboardPage() {
             Welcome back, {user?.full_name || "Operations Lead"}
           </h1>
           <p className="welcome-subtext">
-            Real-time cash replenishment and predictive forecasting overview.
+            {user?.full_name === "Public Demo Visitor"
+              ? "Sample cash replenishment and predictive forecasting overview."
+              : "Real-time cash replenishment and predictive forecasting overview."}
           </p>
         </div>
         <button

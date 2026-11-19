@@ -8,7 +8,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { login, enterDemo } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -36,6 +36,11 @@ export default function LoginPage() {
     setEmail("demo@koshflow.com");
     setPassword("password123");
     setError("");
+  };
+
+  const handleExploreDemo = () => {
+    enterDemo();
+    navigate("/");
   };
 
   return (
@@ -106,6 +111,15 @@ export default function LoginPage() {
             )}
           </button>
         </form>
+
+        <button
+          type="button"
+          className="btn btn-secondary btn-block explore-demo-btn"
+          onClick={handleExploreDemo}
+        >
+          Explore Demo Dashboard
+          <ArrowRight size={18} />
+        </button>
 
         <div className="demo-credentials-card">
           <div className="demo-header">

@@ -82,7 +82,8 @@ Kosh Flow/
 │   │       ├── forecast_router.py  # /forecast/atm/{atm_id}
 │   │       ├── plan_router.py      # /plan, /plan/route
 │   │       ├── model_router.py     # /model/metrics
-│   │       └── alerts_router.py    # /alerts
+│   │       ├── alerts_router.py    # /alerts
+│   │       └── demo_router.py      # /demo/... synthetic public read-only routes
 │   ├── ml/
 │   │   ├── train_model.py       # Cleaning, feature engineering, regression training
 │   │   ├── model.joblib         # Serialized model & encoders bundle
@@ -176,6 +177,17 @@ The database comes pre-seeded with an operator account:
 - **Email**: `demo@koshflow.com`
 - **Password**: `password123`
 - *(Or click the "Fill Demo Login" button on the sign-in screen)*
+
+## 🌐 Public Read-Only Demo
+
+The login page remains the entry page. Visitors can select **Explore Demo Dashboard** to enter a separate public demo session without a JWT or database account. Demo sessions persist across refreshes and display a read-only indicator.
+
+The public demo API is isolated under `GET /demo/...` and serves synthetic in-memory examples only. It supports the overview, ATM and individual/regional forecast explorer, shortage risk, replenishment recommendations, model metrics, alerts, historical analytics, and CSV report download. Demo requests are restricted to an explicit frontend GET allowlist, and the backend demo router has no database dependency or write endpoints. Existing non-demo API routes and admin sign-in/JWT behavior are unchanged. No new environment variables are required.
+
+To run the isolated demo endpoint tests from the `backend` directory:
+```bash
+python -m unittest test_demo
+```
 
 ---
 

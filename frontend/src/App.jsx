@@ -1,6 +1,6 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./context/AuthContext";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
 import LoginPage from "./pages/LoginPage";
@@ -8,6 +8,8 @@ import DashboardPage from "./pages/DashboardPage";
 import PlanPage from "./pages/PlanPage";
 import ModelPage from "./pages/ModelPage";
 import AboutPage from "./pages/AboutPage";
+import DemoNetworkPage from "./pages/DemoNetworkPage";
+import DemoAnalyticsPage from "./pages/DemoAnalyticsPage";
 
 export default function App() {
   return (
@@ -24,6 +26,10 @@ export default function App() {
               <Route path="/plan" element={<PlanPage />} />
               <Route path="/model" element={<ModelPage />} />
               <Route path="/about" element={<AboutPage />} />
+              <Route element={<DemoOnlyRoute />}>
+                <Route path="/demo/network" element={<DemoNetworkPage />} />
+                <Route path="/demo/analytics" element={<DemoAnalyticsPage />} />
+              </Route>
             </Route>
           </Route>
 
@@ -33,4 +39,9 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
   );
+}
+
+function DemoOnlyRoute() {
+  const { isDemo } = useAuth();
+  return isDemo ? <Outlet /> : <Navigate to="/" replace />;
 }

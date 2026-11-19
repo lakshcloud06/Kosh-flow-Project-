@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import api from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import {
   Truck,
   MapPin,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 
 export default function PlanPage() {
+  const { isDemo } = useAuth();
   const [planItems, setPlanItems] = useState([]);
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +37,9 @@ export default function PlanPage() {
   const generateRoute = async () => {
     setRouteLoading(true);
     try {
-      const res = await api.post("/plan/route", {});
+      const res = isDemo
+        ? await api.get("/plan/route")
+        : await api.post("/plan/route", {});
       setRouteData(res.data);
     } catch (err) {
       console.error("Failed to generate route:", err);

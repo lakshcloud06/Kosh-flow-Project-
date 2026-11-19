@@ -2,9 +2,12 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import api from "../api/client";
 
 const AuthContext = createContext(null);
+const DEMO_USER = { full_name: "Public Demo Visitor" };
 
 export const AuthProvider = ({ children }) => {
+  const [isDemo, setIsDemo] = useState(() => localStorage.getItem("koshflow_demo") === "true");
   const [user, setUser] = useState(() => {
+    if (localStorage.getItem("koshflow_demo") === "true") return DEMO_USER;
     const saved = localStorage.getItem("koshflow_user");
     return saved ? JSON.parse(saved) : null;
   });
@@ -13,6 +16,15 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const verifyUser = async () => {
+      if (localStorage.getItem("koshflow_demo") === "true") {
+        localStorage.removeItem("koshflow_token");
+        localStorage.removeItem("koshflow_user");
+        setToken(null);
+        setUser(DEMO_USER);
+        setLoading(false);
+        return;
+      }
+
       const storedToken = localStorage.getItem("koshflow_token");
       if (storedToken) {
         try {
@@ -30,6 +42,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
+    localStorage.removeItem("koshflow_demo");
+    setIsDemo(false);
     const res = await api.post("/auth/login", { email, password });
     const { access_token, user: userData } = res.data;
     setToken(access_token);
@@ -39,15 +53,26 @@ export const AuthProvider = ({ children }) => {
     return userData;
   };
 
+  const enterDemo = () => {
+    localStorage.removeItem("koshflow_token");
+    localStorage.removeItem("koshflow_user");
+    localStorage.setItem("koshflow_demo", "true");
+    setToken(null);
+    setUser(DEMO_USER);
+    setIsDemo(true);
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
+    setIsDemo(false);
     localStorage.removeItem("koshflow_token");
     localStorage.removeItem("koshflow_user");
+    localStorage.removeItem("koshflow_demo");
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, isDemo, login, enterDemo, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

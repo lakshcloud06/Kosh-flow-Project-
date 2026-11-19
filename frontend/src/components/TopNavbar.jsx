@@ -5,7 +5,7 @@ import api from "../api/client";
 import AlertModal from "./AlertModal";
 
 export default function TopNavbar() {
-  const { user, logout } = useAuth();
+  const { user, isDemo, logout } = useAuth();
   const [alerts, setAlerts] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -50,6 +50,7 @@ export default function TopNavbar() {
 
         {/* User Profile and Logout */}
         <div className="nav-user-actions">
+          {isDemo && <span className="demo-mode-badge">Read-only demo · sample data</span>}
           <div className="user-info-pill">
             <div className="user-avatar">
               <UserIcon size={16} />
@@ -63,7 +64,7 @@ export default function TopNavbar() {
             title="Sign out"
           >
             <LogOut size={16} />
-            <span>Sign out</span>
+            <span>{isDemo ? "Exit demo" : "Sign out"}</span>
           </button>
         </div>
       </header>

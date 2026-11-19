@@ -1,10 +1,16 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Truck, Sliders, Info, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Truck, Sliders, Info, ShieldCheck, MapPin, BarChart3 } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 export default function Sidebar() {
+  const { isDemo } = useAuth();
   const navItems = [
     { name: "Dashboard", path: "/", icon: LayoutDashboard },
+    ...(isDemo ? [
+      { name: "ATM & Forecast Explorer", path: "/demo/network", icon: MapPin },
+      { name: "Analytics & Reports", path: "/demo/analytics", icon: BarChart3 },
+    ] : []),
     { name: "Replenishment Plan", path: "/plan", icon: Truck },
     { name: "Model Settings", path: "/model", icon: Sliders },
     { name: "About Us", path: "/about", icon: Info },
