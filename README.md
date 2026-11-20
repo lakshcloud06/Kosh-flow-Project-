@@ -121,18 +121,11 @@ Kosh Flow/
 ### 1. Database Configuration
 Edit [`backend/.env`](file:///c:/Users/laksh/Downloads/Kosh%20Flow/backend/.env) with your MySQL credentials:
 ```env
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your_mysql_password
-DB_NAME=koshflow
-JWT_SECRET=koshflow_secret_key_atm_cash_demand_forecasting_2026
-JWT_EXPIRE_MINUTES=1440
-```
-*(If MySQL is not currently connected, Koshflow automatically uses its built-in SQLite engine at `backend/koshflow.db` so you can develop and test immediately without errors.)*
+
+*(If MySQL is not currently connected, Koshflow automatically uses its built-in SQLite engine at `backend/koshflow.db` so we  can develop and test immediately without errors.)*
 
 ### 2. Backend Setup
-In your terminal:
+In my terminal:
 ```bash
 # 1. Create and activate Python virtual environment
 python -m venv .venv
