@@ -12,7 +12,7 @@ export default function TopNavbar() {
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
-        const res = await api.get("/alerts");
+        const res = await api.get("/api/alerts");
         setAlerts(res.data);
       } catch (err) {
         console.error("Failed to load alerts:", err);
@@ -23,7 +23,9 @@ export default function TopNavbar() {
     return () => clearInterval(interval);
   }, []);
 
-  const latestAlert = alerts.length > 0 ? alerts[0].message : "All network ATMs operating within safe cash reserves";
+  const latestAlert = alerts.length > 0
+    ? alerts[0].message
+    : "No dataset-backed shortage alerts are available";
 
   return (
     <>
@@ -50,22 +52,23 @@ export default function TopNavbar() {
 
         {/* User Profile and Logout */}
         <div className="nav-user-actions">
-          {isDemo && <span className="demo-mode-badge">Read-only demo · sample data</span>}
           <div className="user-info-pill">
             <div className="user-avatar">
               <UserIcon size={16} />
             </div>
             <span className="user-name">{user?.full_name || "Operator"}</span>
           </div>
-          <button
-            type="button"
-            className="logout-button"
-            onClick={logout}
-            title="Sign out"
-          >
-            <LogOut size={16} />
-            <span>{isDemo ? "Exit demo" : "Sign out"}</span>
-          </button>
+          {!isDemo && (
+            <button
+              type="button"
+              className="logout-button"
+              onClick={logout}
+              title="Sign out"
+            >
+              <LogOut size={16} />
+              <span>Sign out</span>
+            </button>
+          )}
         </div>
       </header>
 

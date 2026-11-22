@@ -30,6 +30,13 @@ api.interceptors.request.use(
     if (localStorage.getItem("koshflow_demo") === "true") {
       const method = (config.method || "get").toLowerCase();
       const requestPath = (config.url || "").split("?")[0];
+      if (requestPath.startsWith("/api/")) {
+        if (method !== "get") {
+          return Promise.reject(new Error("Public demo access is read-only."));
+        }
+        config.headers.Authorization = undefined;
+        return config;
+      }
       if (method !== "get" || !DEMO_READ_ROUTES.some((route) => route.test(requestPath))) {
         return Promise.reject(new Error("This request is not available in read-only demo mode."));
       }

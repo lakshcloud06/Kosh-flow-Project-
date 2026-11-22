@@ -10,6 +10,7 @@ from app.routers import (
     model_router,
     alerts_router,
     demo_router,
+    dataset_router,
 )
 
 @asynccontextmanager
@@ -49,6 +50,7 @@ app.include_router(plan_router.router)
 app.include_router(model_router.router)
 app.include_router(alerts_router.router)
 app.include_router(demo_router.router)
+app.include_router(dataset_router.router)
 
 @app.get("/")
 def root():

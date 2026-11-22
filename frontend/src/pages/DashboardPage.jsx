@@ -1,103 +1,194 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/client";
 import PlotlyChart from "../components/PlotlyChart";
 import {
-  TrendingUp,
+  AlertCircle,
   AlertTriangle,
   CalendarCheck,
-  CheckCircle2,
   RefreshCw,
-  AlertCircle
+  TrendingUp,
 } from "lucide-react";
+
+const EMPTY_ANALYTICS = { data: [] };
+const TREND_RANGES = [
+  { value: "1", label: "1 Day" },
+  { value: "7", label: "7 Days" },
+  { value: "14", label: "14 Days" },
+  { value: "30", label: "30 Days" },
+];
+const currencyInLakhs = (amount) =>
+  amount == null ? "—" : `₹${(Number(amount) / 100000).toFixed(2)} L`;
+const displayNumber = (value) =>
+  value == null ? "—" : Number(value).toLocaleString("en-IN");
+const shiftDate = (value, days) => {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [kpis, setKpis] = useState(null);
-  const [demandData, setDemandData] = useState(null);
-  const [refillAtms, setRefillAtms] = useState([]);
-  const [range, setRange] = useState("7");
+  const [summary, setSummary] = useState(null);
+  const [atms, setAtms] = useState([]);
+  const [selectedAtm, setSelectedAtm] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [trendRange, setTrendRange] = useState("7");
+  const [trend, setTrend] = useState(EMPTY_ANALYTICS);
+  const [breakdown, setBreakdown] = useState(EMPTY_ANALYTICS);
+  const [atmDemand, setAtmDemand] = useState(EMPTY_ANALYTICS);
+  const [history, setHistory] = useState([]);
+  const [forecast, setForecast] = useState({ items: [] });
+  const [breakdownBy, setBreakdownBy] = useState("city");
   const [loading, setLoading] = useState(true);
-  const [chartLoading, setChartLoading] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const fetchData = async () => {
-    setError("");
+  const fetchSummary = async () => {
     setLoading(true);
+    setError("");
     try {
-      const [kpiRes, refillRes] = await Promise.all([
-        api.get("/dashboard/kpis"),
-        api.get("/dashboard/refill-atms")
+      const [summaryResponse, atmsResponse] = await Promise.all([
+        api.get("/api/dashboard/summary"),
+        api.get("/api/atms"),
       ]);
-      setKpis(kpiRes.data);
-      setRefillAtms(refillRes.data);
-    } catch (err) {
-      console.error("Dashboard fetch error:", err);
-      setError("Unable to connect to Koshflow API. Ensure backend is running.");
+      setSummary(summaryResponse.data);
+      setAtms(atmsResponse.data);
+    } catch (requestError) {
+      console.error("Dashboard data request failed:", requestError);
+      setError("Unable to load dataset-backed dashboard data from the Koshflow API.");
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchDemandChart = async (selectedRange) => {
-    setChartLoading(true);
-    try {
-      const res = await api.get(`/dashboard/demand?range=${selectedRange}`);
-      setDemandData(res.data);
-    } catch (err) {
-      console.error("Chart fetch error:", err);
-    } finally {
-      setChartLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchData();
+    fetchSummary();
   }, []);
 
   useEffect(() => {
-    fetchDemandChart(range);
-  }, [range]);
+    let active = true;
+    const fetchAnalytics = async () => {
+      setAnalyticsLoading(true);
+      setError("");
+      const dateParams = {
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      };
+      const periodEnd = endDate || summary?.date_end;
+      const periodStart = periodEnd
+        ? shiftDate(periodEnd, 1 - Number(trendRange))
+        : "";
+      const trendDateParams = periodEnd
+        ? {
+            start_date: startDate && startDate > periodStart ? startDate : periodStart,
+            end_date: periodEnd,
+          }
+        : dateParams;
+      try {
+        const [trendResponse, breakdownResponse, atmResponse, historyResponse, forecastResponse] =
+          await Promise.all([
+            api.get("/api/analytics", {
+              params: { ...trendDateParams, atm_id: selectedAtm || undefined, group_by: "date" },
+            }),
+            api.get("/api/analytics", {
+              params: { ...dateParams, group_by: breakdownBy },
+            }),
+            api.get("/api/analytics", {
+              params: { ...dateParams, group_by: "atm" },
+            }),
+            selectedAtm
+              ? api.get(`/api/atms/${encodeURIComponent(selectedAtm)}/history`, { params: dateParams })
+              : Promise.resolve({ data: { data: [] } }),
+            selectedAtm
+              ? api.get("/api/forecast", { params: { atm_id: selectedAtm, days: 7 } })
+                .catch((requestError) => ({
+                  data: {
+                    items: [],
+                    error: requestError.response?.data?.detail || "Model forecast is unavailable.",
+                  },
+                }))
+              : Promise.resolve({ data: { items: [] } }),
+          ]);
+        if (!active) return;
+        setTrend(trendResponse.data);
+        setBreakdown(breakdownResponse.data);
+        setAtmDemand(atmResponse.data);
+        setHistory(historyResponse.data.data);
+        setForecast(forecastResponse.data);
+        if (forecastResponse.data.error) setError(forecastResponse.data.error);
+      } catch (requestError) {
+        if (!active) return;
+        console.error("Dashboard analytics request failed:", requestError);
+        setError(
+          requestError.response?.data?.detail ||
+            "Unable to load historical analytics or model forecasts."
+        );
+        setTrend(EMPTY_ANALYTICS);
+        setBreakdown(EMPTY_ANALYTICS);
+        setAtmDemand(EMPTY_ANALYTICS);
+        setHistory([]);
+        setForecast({ items: [] });
+      } finally {
+        if (active) setAnalyticsLoading(false);
+      }
+    };
+    fetchAnalytics();
+    return () => {
+      active = false;
+    };
+  }, [startDate, endDate, selectedAtm, breakdownBy, trendRange, summary?.date_end]);
 
-  const rangeButtons = [
-    { label: "1 day", value: "1" },
-    { label: "7 days", value: "7" },
-    { label: "14 days", value: "14" },
-    { label: "30 days", value: "30" },
-  ];
+  const chartTraces = useMemo(() => {
+    const traces = [{
+      x: trend.data.map((item) => item.date),
+      y: trend.data.map((item) =>
+        item.actual_withdrawal == null ? null : item.actual_withdrawal / 100000
+      ),
+      type: "scatter",
+      mode: "lines",
+      name: "Actual withdrawal",
+      line: { color: "#2563EB", width: 3 },
+    }];
+    if (trend.data.some((item) => item.predicted_demand != null)) {
+      traces.push({
+        x: trend.data.map((item) => item.date),
+        y: trend.data.map((item) =>
+          item.predicted_demand == null ? null : item.predicted_demand / 100000
+        ),
+        type: "scatter",
+        mode: "lines",
+        name: "Stored model prediction",
+        line: { color: "#64748B", width: 2.5, dash: "dash" },
+      });
+    }
+    return traces;
+  }, [trend]);
 
-  if (loading) {
-    return (
-      <div className="page-loader">
-        <div className="spinner"></div>
-        <p>Loading real-time ATM network telemetry...</p>
-      </div>
-    );
-  }
-
-  // Plotly chart config
-  const chartTraces = demandData
-    ? [
-        {
-          x: demandData.x,
-          y: demandData.actual,
-          type: "scatter",
-          mode: "lines+markers",
-          name: "Actual Demand",
-          line: { color: "#2563EB", width: 3 },
-          marker: { size: 6, color: "#2563EB" },
-        },
-        {
-          x: demandData.x,
-          y: demandData.forecast,
-          type: "scatter",
-          mode: "lines+markers",
-          name: "Forecast Demand",
-          line: { color: "#64748B", width: 2.5, dash: "dash" },
-          marker: { size: 6, color: "#64748B" },
-        },
-      ]
-    : [];
+  const cityTraces = [{
+    x: breakdown.data.map((item) => item.city || item.region),
+    y: breakdown.data.map((item) => item.actual_withdrawal / 100000),
+    type: "bar",
+    name: "Actual withdrawal",
+    marker: { color: "#0F766E" },
+  }];
+  const atmTraces = [{
+    x: atmDemand.data.map((item) => item.atm_id),
+    y: atmDemand.data.map((item) => item.actual_withdrawal / 100000),
+    type: "bar",
+    name: "Actual withdrawal",
+    marker: { color: "#2563EB" },
+  }];
+  const futureTraces = [{
+    x: forecast.items.map((item) => item.date),
+    y: forecast.items.map((item) => item.predicted_demand / 100000),
+    type: "scatter",
+    mode: "lines+markers",
+    name: "Model forecast",
+    line: { color: "#0F766E", width: 3 },
+  }];
 
   const chartLayout = {
     autosize: true,
@@ -105,47 +196,43 @@ export default function DashboardPage() {
     hovermode: "x unified",
     paper_bgcolor: "transparent",
     plot_bgcolor: "transparent",
-    yaxis: {
-      title: "Cash amount (₹ lakhs)",
-      titlefont: { size: 12, color: "#475569" },
-      tickfont: { color: "#475569", size: 11 },
-      gridcolor: "#E2E8F0",
-      zerolinecolor: "#CBD5E1",
-    },
-    xaxis: {
-      tickfont: { color: "#475569", size: 11 },
-      gridcolor: "#F1F5F9",
-    },
-    legend: {
-      orientation: "h",
-      x: 0.5,
-      xanchor: "center",
-      y: -0.22,
-      font: { color: "#334155", size: 12 },
-    },
+    yaxis: { title: "Withdrawal (₹ lakhs)", gridcolor: "#E2E8F0" },
+    xaxis: { gridcolor: "#F1F5F9", type: "date", tickformat: "%b %d" },
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.22 },
   };
+
+  if (loading) {
+    return (
+      <div className="page-loader">
+        <div className="spinner"></div>
+        <p>Loading ATM data from the connected dataset...</p>
+      </div>
+    );
+  }
+
+  const riskOrder = { high: 0, medium: 1 };
+  const riskAtms = atms
+    .filter((atm) => ["high", "medium"].includes(atm.risk_level))
+    .sort((a, b) =>
+      riskOrder[a.risk_level] - riskOrder[b.risk_level] ||
+      (a.days_left ?? Number.POSITIVE_INFINITY) - (b.days_left ?? Number.POSITIVE_INFINITY)
+    );
+  const displayedRiskAtms = riskAtms.slice(0, 10);
+  const selectedHistory = history.slice(-30).reverse();
 
   return (
     <div className="dashboard-page">
-      {/* Welcome Banner */}
       <div className="page-header">
         <div>
-          <h1 className="welcome-text">
-            Welcome back, {user?.full_name || "Operations Lead"}
-          </h1>
+          <h1 className="welcome-text">Welcome back, {user?.full_name || "Operations Lead"}</h1>
           <p className="welcome-subtext">
-            {user?.full_name === "Public Demo Visitor"
-              ? "Sample cash replenishment and predictive forecasting overview."
-              : "Real-time cash replenishment and predictive forecasting overview."}
+            Actual ATM demand, historical model validation, and dataset-based replenishment risk.
           </p>
         </div>
         <button
           className="btn btn-secondary btn-sm refresh-btn"
-          onClick={() => {
-            fetchData();
-            fetchDemandChart(range);
-          }}
-          title="Refresh metrics"
+          onClick={fetchSummary}
+          title="Refresh dataset metrics"
         >
           <RefreshCw size={15} />
           <span>Refresh</span>
@@ -153,152 +240,215 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div className="error-banner">
+        <div className="error-banner" role="alert">
           <AlertCircle size={20} />
           <span>{error}</span>
         </div>
       )}
 
-      {/* 4 KPI Cards */}
-      <section className="kpi-grid">
-        <div className="card kpi-card">
-          <div className="kpi-icon-wrapper kpi-blue">
-            <TrendingUp size={22} />
-          </div>
-          <div className="kpi-content">
-            <span className="kpi-label">Average daily demand</span>
-            <h2 className="kpi-value">₹{kpis?.avg_daily_demand_lakhs ?? "4.86"} L</h2>
-            <span className="kpi-subtext">Across active network ATMs</span>
-          </div>
-        </div>
+      <section className="kpi-grid dataset-kpi-grid">
+        <MetricCard icon={<TrendingUp size={22} />} tone="blue" label="Total ATMs" value={displayNumber(summary?.total_atms)} />
+        <MetricCard icon={<CalendarCheck size={22} />} tone="teal" label="Historical records" value={displayNumber(summary?.total_records)} />
+        <MetricCard icon={<TrendingUp size={22} />} tone="green" label="Average withdrawal / ATM-day" value={currencyInLakhs(summary?.average_daily_withdrawal)} />
+        <MetricCard icon={<AlertTriangle size={22} />} tone="red" label="ATMs at shortage risk" value={displayNumber(summary?.atms_at_risk)} />
+        <MetricCard icon={<RefreshCw size={22} />} tone="blue" label="Refills planned this week" value={displayNumber(summary?.refill_recommendations ?? 0)} />
+      </section>
 
-        <div className="card kpi-card">
-          <div className="kpi-icon-wrapper kpi-red">
-            <AlertTriangle size={22} />
+      <section className="card">
+        <div className="chart-header">
+          <div>
+            <h2 className="section-title">Dataset filters</h2>
+            <p className="section-subtitle">
+              Historical coverage: {summary?.date_start || "—"} to {summary?.date_end || "—"}
+            </p>
           </div>
-          <div className="kpi-content">
-            <span className="kpi-label">ATMs at risk</span>
-            <h2 className="kpi-value kpi-val-danger">{kpis?.atms_at_risk ?? "0"}</h2>
-            <span className="kpi-subtext">Cash-out predicted within 24h</span>
-          </div>
-        </div>
-
-        <div className="card kpi-card">
-          <div className="kpi-icon-wrapper kpi-teal">
-            <CalendarCheck size={22} />
-          </div>
-          <div className="kpi-content">
-            <span className="kpi-label">Refills planned this week</span>
-            <h2 className="kpi-value">{kpis?.refills_planned_week ?? "0"}</h2>
-            <span className="kpi-subtext">Scheduled replenishment stops</span>
-          </div>
-        </div>
-
-        <div className="card kpi-card">
-          <div className="kpi-icon-wrapper kpi-green">
-            <CheckCircle2 size={22} />
-          </div>
-          <div className="kpi-content">
-            <span className="kpi-label">Forecast accuracy</span>
-            <h2 className="kpi-value kpi-val-success">{kpis?.forecast_accuracy ?? "90.2"}%</h2>
-            <span className="kpi-subtext">Exceeds target &ge; 85%</span>
+          <div className="dataset-filters">
+            <label>
+              ATM
+              <select value={selectedAtm} onChange={(event) => setSelectedAtm(event.target.value)}>
+                <option value="">All ATMs</option>
+                {atms.map((atm) => (
+                  <option key={atm.atm_id} value={atm.atm_id}>{atm.atm_id} · {atm.city}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              From
+              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+            </label>
+            <label>
+              To
+              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+            </label>
           </div>
         </div>
       </section>
 
-      {/* Chart Section */}
       <section className="card chart-card">
         <div className="chart-header">
           <div>
-            <h2 className="section-title">Cash demand: actual vs forecast</h2>
+            <h2 className="section-title">Historical withdrawals: actual vs stored prediction</h2>
             <p className="section-subtitle">
-              Comparison of observed withdrawals and ML predicted demand series in ₹ lakhs.
+              Actual values cover the selected historical period. Stored model predictions appear only for dates with prediction records.
             </p>
           </div>
-          <div className="range-button-group">
-            {rangeButtons.map((btn) => (
+          <div className="range-button-group" role="group" aria-label="Historical time period">
+            {TREND_RANGES.map((range) => (
               <button
-                key={btn.value}
+                key={range.value}
                 type="button"
-                className={`range-btn ${range === btn.value ? "range-btn-active" : ""}`}
-                onClick={() => setRange(btn.value)}
+                className={`range-btn ${trendRange === range.value ? "range-btn-active" : ""}`}
+                aria-pressed={trendRange === range.value}
+                onClick={() => setTrendRange(range.value)}
               >
-                {btn.label}
+                {range.label}
               </button>
             ))}
           </div>
         </div>
-
         <div className="chart-container">
-          {chartLoading ? (
-            <div className="chart-spinner-overlay">
-              <div className="spinner"></div>
-            </div>
+          {analyticsLoading ? (
+            <div className="chart-spinner-overlay"><div className="spinner"></div></div>
+          ) : trend.data.length ? (
+            <PlotlyChart data={chartTraces} layout={chartLayout} config={{ displayModeBar: false, responsive: true }} />
           ) : (
-            <PlotlyChart
-              data={chartTraces}
-              layout={chartLayout}
-              config={{ displayModeBar: false, responsive: true }}
-            />
+            <p className="text-center py-4 text-muted">No historical demand exists for the selected filters.</p>
           )}
         </div>
       </section>
 
-      {/* Table Section: ATMs needing refill */}
+      <div className="demo-explorer-grid">
+        <section className="card chart-card">
+          <div className="chart-header">
+            <div>
+              <h2 className="section-title">City and regional demand</h2>
+              <p className="section-subtitle">
+                Region labels are derived from the dataset’s city field; demand values are aggregated from database records.
+              </p>
+            </div>
+            <label className="demo-select-label">
+              Group by
+              <select value={breakdownBy} onChange={(event) => setBreakdownBy(event.target.value)}>
+                <option value="city">City</option>
+                <option value="region">Region</option>
+              </select>
+            </label>
+          </div>
+          <div className="chart-container">
+            {breakdown.data.length ? (
+              <PlotlyChart data={cityTraces} layout={chartLayout} config={{ displayModeBar: false, responsive: true }} />
+            ) : <p className="text-center py-4 text-muted">No city or region data for this date range.</p>}
+          </div>
+        </section>
+
+        <section className="card chart-card">
+          <div className="chart-header">
+            <div>
+              <h2 className="section-title">ATM-wise cash demand</h2>
+              <p className="section-subtitle">Total actual withdrawals for the selected date range.</p>
+            </div>
+          </div>
+          <div className="chart-container">
+            {atmDemand.data.length ? (
+              <PlotlyChart data={atmTraces} layout={{ ...chartLayout, xaxis: { ...chartLayout.xaxis, tickangle: -45 } }} config={{ displayModeBar: false, responsive: true }} />
+            ) : <p className="text-center py-4 text-muted">No ATM demand data for this date range.</p>}
+          </div>
+        </section>
+      </div>
+
+      {selectedAtm && (
+        <div className="demo-explorer-grid">
+          <section className="card chart-card">
+            <div className="chart-header">
+              <div>
+                <h2 className="section-title">Existing model forecast</h2>
+                <p className="section-subtitle">
+                  Forecast origin: {forecast.forecast_origin_date || "—"} · {forecast.assumptions || ""}
+                </p>
+              </div>
+            </div>
+            <div className="chart-container">
+              {forecast.items.length ? (
+                <PlotlyChart data={futureTraces} layout={chartLayout} config={{ displayModeBar: false, responsive: true }} />
+              ) : <p className="text-center py-4 text-muted">No model forecast is available.</p>}
+            </div>
+          </section>
+
+          <section className="card table-card">
+            <div className="table-header">
+              <div>
+                <h2 className="section-title">{selectedAtm} historical records</h2>
+                <p className="section-subtitle">Latest 30 records in the selected date range.</p>
+              </div>
+              <span className="badge badge-neutral">{history.length} records</span>
+            </div>
+            <div className="table-responsive">
+              <table className="data-table">
+                <thead><tr><th>Date</th><th>Withdrawal</th><th>Replenished</th><th>Closing balance</th><th>Stored prediction</th></tr></thead>
+                <tbody>
+                  {selectedHistory.length ? selectedHistory.map((item) => (
+                    <tr key={item.date}>
+                      <td>{item.date}</td>
+                      <td>{currencyInLakhs(item.withdrawal_amount)}</td>
+                      <td>{currencyInLakhs(item.cash_replenished)}</td>
+                      <td>{currencyInLakhs(item.balance_closing)}</td>
+                      <td>{currencyInLakhs(item.predicted_demand)}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan="5" className="text-center py-4 text-muted">No history for the selected ATM and date range.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+
       <section className="card table-card">
         <div className="table-header">
           <div>
-            <h2 className="section-title">ATMs needing refill</h2>
-            <p className="section-subtitle">
-              Prioritized by cash-out urgency and remaining cash balance.
-            </p>
+            <h2 className="section-title">ATMs needing replenishment</h2>
+            <p className="section-subtitle">Risk is calculated from each ATM’s latest recorded cash balance and stored forecast.</p>
           </div>
-          <span className="badge badge-neutral">{refillAtms.length} ATMs listed</span>
+          <div className="table-header-actions">
+            <span className="badge badge-neutral">{riskAtms.length} ATMs at elevated risk</span>
+            <Link to="/plan" className="btn btn-secondary btn-sm">View All</Link>
+          </div>
         </div>
-
         <div className="table-responsive">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>ATM</th>
-                <th>Location</th>
-                <th>Cash left</th>
-                <th>Predicted out</th>
-                <th>Status</th>
-              </tr>
-            </thead>
+            <thead><tr><th>ATM</th><th>City</th><th>Cash as of</th><th>Cash left</th><th>Expected daily demand</th><th>Risk</th></tr></thead>
             <tbody>
-              {refillAtms.length === 0 ? (
-                <tr>
-                  <td colSpan="5" className="text-center py-4 text-muted">
-                    No ATMs currently require immediate cash replenishment.
-                  </td>
+              {displayedRiskAtms.length ? displayedRiskAtms.map((atm) => (
+                <tr key={atm.atm_id}>
+                  <td className="font-semibold text-slate-800">{atm.atm_id}</td>
+                  <td>{atm.city} · {atm.region}</td>
+                  <td>{atm.cash_as_of}</td>
+                  <td>{currencyInLakhs(atm.cash_left)}</td>
+                  <td>{currencyInLakhs(atm.average_daily_demand)}</td>
+                  <td><span className={`risk-badge badge-${atm.risk_level}`}>{atm.risk_level.toUpperCase()}</span></td>
                 </tr>
-              ) : (
-                refillAtms.map((atm) => (
-                  <tr key={atm.atm_id}>
-                    <td className="font-semibold text-slate-800">{atm.atm_id}</td>
-                    <td>{atm.location}</td>
-                    <td>
-                      <span className="cash-amount">
-                        ₹{(atm.cash_left / 100000).toFixed(2)} Lakhs
-                      </span>
-                    </td>
-                    <td>
-                      <span className="predicted-out-text">{atm.predicted_out}</span>
-                    </td>
-                    <td>
-                      <span className={`risk-badge badge-${atm.risk_level}`}>
-                        {atm.risk_level.toUpperCase()}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+              )) : (
+                <tr><td colSpan="6" className="text-center py-4 text-muted">
+                  {atms.length ? "No ATM has an elevated shortage risk in the available forecast data." : "No ATM records are available."}
+                </td></tr>
               )}
             </tbody>
           </table>
         </div>
       </section>
+    </div>
+  );
+}
+
+function MetricCard({ icon, tone, label, value }) {
+  return (
+    <div className="card kpi-card">
+      <div className={`kpi-icon-wrapper kpi-${tone}`}>{icon}</div>
+      <div className="kpi-content">
+        <span className="kpi-label">{label}</span>
+        <h2 className="kpi-value">{value}</h2>
+      </div>
     </div>
   );
 }

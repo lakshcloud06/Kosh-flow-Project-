@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import api from "../api/client";
 
 const AuthContext = createContext(null);
-const DEMO_USER = { full_name: "Public Demo Visitor" };
+const DEMO_USER = { full_name: "Lakshay" };
 
 export const AuthProvider = ({ children }) => {
   const [isDemo, setIsDemo] = useState(() => localStorage.getItem("koshflow_demo") === "true");

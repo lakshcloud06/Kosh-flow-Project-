@@ -1,23 +1,48 @@
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, Optional, List, Tuple
+import logging
 import joblib
 import pandas as pd
-import numpy as np
 
 # Cache loaded model bundle in memory
 _model_bundle = None
+logger = logging.getLogger("koshflow.forecast")
+MODEL_FEATURES = [
+    "atm_code", "city_code", "loc_code", "atm_capacity", "nearby_atm_count",
+    "day_of_week", "is_weekend", "day", "month", "is_holiday", "is_festival",
+    "is_salary_day", "temperature", "rainfall", "footfall_index", "upi_share_pct",
+    "lag_1", "lag_7", "roll_mean_7",
+]
+
+
+class ModelUnavailableError(RuntimeError):
+    """Raised when the trained forecasting model cannot be used."""
 
 def get_model_bundle():
     """Load the trained machine learning model bundle and feature encoders."""
     global _model_bundle
     if _model_bundle is None:
         model_path = Path(__file__).resolve().parent.parent.parent / "ml" / "model.joblib"
-        if not model_path.exists():
-            # Fallback path if run from project root
-            model_path = Path("backend/ml/model.joblib")
-        if model_path.exists():
+        if not model_path.is_file():
+            raise ModelUnavailableError(f"Trained model file is missing: {model_path}")
+        try:
             _model_bundle = joblib.load(model_path)
+        except Exception as exc:
+            logger.exception("Unable to load the trained forecasting model.")
+            raise ModelUnavailableError("The trained forecasting model could not be loaded.") from exc
+
+        required_keys = {"model", "encoders", "feature_columns"}
+        if not required_keys.issubset(_model_bundle):
+            _model_bundle = None
+            raise ModelUnavailableError("The trained model bundle has an incompatible format.")
+        if _model_bundle["feature_columns"] != MODEL_FEATURES:
+            _model_bundle = None
+            raise ModelUnavailableError("The trained model feature contract is incompatible.")
+        expected_features = len(_model_bundle["feature_columns"])
+        if getattr(_model_bundle["model"], "n_features_in_", None) != expected_features:
+            _model_bundle = None
+            raise ModelUnavailableError("The model feature count does not match its saved feature contract.")
     return _model_bundle
 
 def predict_atm_demand(
@@ -31,9 +56,8 @@ def predict_atm_demand(
 ) -> float:
     """Predict cash demand (withdrawal amount in INR) for a given ATM and date."""
     bundle = get_model_bundle()
-    if bundle is None:
-        # Fallback heuristic if model file is not found
-        return round(float(atm_capacity) * 0.28, 2)
+    if recent_lags is None:
+        raise ValueError("Recent dataset features are required for model inference.")
 
     model = bundle["model"]
     encoders = bundle["encoders"]
@@ -41,11 +65,16 @@ def predict_atm_demand(
     atm_categories = encoders.get("atm_categories", {})
     city_categories = encoders.get("city_categories", {})
     loc_categories = encoders.get("loc_categories", {})
-    median_demand = encoders.get("median_demand", 465000.0)
+    if atm_id not in atm_categories:
+        raise ValueError(f"ATM '{atm_id}' is not in the trained model's feature encoders.")
+    if city.title() not in city_categories:
+        raise ValueError(f"City '{city}' is not in the trained model's feature encoders.")
+    if location_type.title() not in loc_categories:
+        raise ValueError(f"Location type '{location_type}' is not in the trained model's feature encoders.")
 
-    atm_code = atm_categories.get(atm_id, 0)
-    city_code = city_categories.get(city.title(), 0)
-    loc_code = loc_categories.get(location_type.title(), 0)
+    atm_code = atm_categories[atm_id]
+    city_code = city_categories[city.title()]
+    loc_code = loc_categories[location_type.title()]
 
     dt = pd.to_datetime(target_date)
     day_of_week = dt.day_of_week
@@ -56,10 +85,14 @@ def predict_atm_demand(
     # Check for salary days (1st-5th of month)
     is_salary_day = 1 if day in [1, 2, 3, 4, 5, 30, 31] else 0
 
-    lags = recent_lags or {}
-    lag_1 = lags.get("lag_1", median_demand)
-    lag_7 = lags.get("lag_7", median_demand)
-    roll_mean_7 = lags.get("roll_mean_7", median_demand)
+    lags = recent_lags
+    required_features = (
+        "lag_1", "lag_7", "roll_mean_7",
+        "temperature", "rainfall", "footfall_index", "upi_share_pct",
+    )
+    missing_features = [name for name in required_features if name not in lags or lags[name] is None]
+    if missing_features:
+        raise ValueError(f"Missing dataset inference features: {', '.join(missing_features)}")
 
     features = [
         atm_code,
@@ -71,21 +104,21 @@ def predict_atm_demand(
         is_weekend,
         day,
         month,
-        0,  # is_holiday
-        0,  # is_festival
+        int(lags.get("is_holiday", 0)),
+        int(lags.get("is_festival", 0)),
         is_salary_day,
-        28.0,  # default temperature
-        0.0,   # rainfall
-        55.0,  # default footfall index
-        95.0,  # upi_share_pct
-        float(lag_1),
-        float(lag_7),
-        float(roll_mean_7)
+        float(lags["temperature"]),
+        float(lags["rainfall"]),
+        float(lags["footfall_index"]),
+        float(lags["upi_share_pct"]),
+        float(lags["lag_1"]),
+        float(lags["lag_7"]),
+        float(lags["roll_mean_7"])
     ]
 
     features_df = pd.DataFrame([features], columns=bundle["feature_columns"])
     pred = model.predict(features_df)[0]
-    return max(50000.0, round(float(pred), 2))
+    return max(0.0, round(float(pred), 2))
 
 def evaluate_risk_level(cash_left: float, predicted_daily_demand: float) -> Tuple[str, float]:
     """

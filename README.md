@@ -4,13 +4,13 @@
 
 ---
 
-## 🎯 Target Performance Benchmarks
+## 🎯 Model Metrics
 
-| Metric | Target | Achieved with Koshflow | Status |
-| :--- | :---: | :---: | :---: |
-| **Forecast Accuracy (100 - MAPE)** | $\ge 85.0\%$ | **90.20%** | ✅ Exceeded (+5.2%) |
-| **Cash-Out Incidents Reduced** | $\ge 70.0\%$ | **76.40%** | ✅ Exceeded (+6.4%) |
-| **Test Set MAPE** | $< 0.15$ | **0.0980** | ✅ Highly Accurate |
+| Metric | Value | Source |
+| :--- | :---: | :--- |
+| **Forecast Accuracy (100 - MAPE)** | **90.20%** | `backend/ml/metrics.json` |
+| **Test Set MAPE** | **0.0980** | `backend/ml/metrics.json` |
+| **Cash-Out Incidents Reduced** | Not measured | No verified outcome metric is available |
 
 ---
 
@@ -18,7 +18,7 @@
 
 - **Frontend**: React (Vite), React Router, Axios, `react-plotly.js` + `plotly.js-dist-min` for charts, plain CSS design system (dark navy `#0F172A`, light background `#F8FAFC`, white rounded cards, teal accent `#0F766E`, red high-risk alerts).
 - **Backend**: Python FastAPI, SQLAlchemy + PyMySQL, Pydantic, python-jose (JWT), direct bcrypt hashing.
-- **Database**: MySQL (configurable exclusively via `backend/.env`). Automatic table creation on startup via SQLAlchemy with graceful SQLite fallback for immediate out-of-the-box local testing.
+- **Database**: MySQL (configured through backend environment variables); dataset tables are `ds_atms`, `ds_demand_records`, and `ds_forecasts`.
 - **Data & ML**: Pandas, NumPy, scikit-learn (`GradientBoostingRegressor`), joblib; Google OR-Tools for TSP/VRP replenishment route optimization.
 - **DevOps**: `Dockerfile` for backend and frontend, `docker-compose.yml`, automated E2E test suite.
 
@@ -26,12 +26,12 @@
 
 ## 📊 Dataset & Feature Engineering
 
-Designed directly around the real columns in [`ATM_cash_demand.csv`](file:///c:/Users/laksh/Downloads/Kosh%20Flow/ATM_cash_demand.csv):
+The source file `ATM_cash_demand.csv` contains 35,598 rows. The processed file `backend/outputs/cleaned_data.csv` contains 35,072 records across 28 columns, 32 ATMs, and dates from 2023-01-01 through 2025-12-31. `withdrawal_amount` is the target; the cleaned data has no duplicate `(atm_id, date)` keys. `holiday_name` is the only field with missing values.
 
 | Column | Real Type | Usage in Koshflow |
 | :--- | :--- | :--- |
 | `atm_id` | String (`ATM001` - `ATM032`) | Unique ATM network identifier and categorical encoding. |
-| `date` | Date (`2023-01-01` to `2023-12-04`) | Parsed into `day_of_week`, `is_weekend`, `day_of_month`, `month`. |
+| `date` | Date (`2023-01-01` to `2025-12-31`) | Parsed into `day_of_week`, `is_weekend`, `day_of_month`, `month`. |
 | `city` | String (Mumbai, Delhi, Jaipur...) | Geographical clustering and location display. |
 | `location_type` | String (`Metro`, `Urban`, `Semi-urban`, `Rural`) | Locational withdrawal elasticity factor. |
 | `site_type` | String (`Branch`, `Market`, `Street`...) | Footfall profile categorization. |
@@ -57,12 +57,13 @@ Designed directly around the real columns in [`ATM_cash_demand.csv`](file:///c:/
 
 ```
 Kosh Flow/
-├── ATM_cash_demand.csv          # Real dataset (6,000 rows, 32 ATMs)
+├── ATM_cash_demand.csv          # Source dataset (35,598 rows)
 ├── docker-compose.yml           # Multi-container orchestration (MySQL, Backend, Frontend)
 ├── README.md                    # Setup and architectural documentation
 ├── backend/
+│   ├── 2_load_to_mysql.py       # Non-destructive, idempotent dataset importer
+│   ├── outputs/cleaned_data.csv # Processed dataset (35,072 rows, 28 columns)
 │   ├── .env.example             # Database & JWT environment template
-│   ├── .env                     # Local configuration
 │   ├── Dockerfile               # Backend container specification
 │   ├── requirements.txt         # Python dependencies
 │   ├── test_e2e.py              # Automated 10-point end-to-end integration test
@@ -83,15 +84,15 @@ Kosh Flow/
 │   │       ├── plan_router.py      # /plan, /plan/route
 │   │       ├── model_router.py     # /model/metrics
 │   │       ├── alerts_router.py    # /alerts
-│   │       └── demo_router.py      # /demo/... synthetic public read-only routes
+│   │       ├── dataset_router.py   # Public read-only, dataset-backed /api routes
+│   │       └── demo_router.py      # /demo/... compatibility routes
 │   ├── ml/
 │   │   ├── train_model.py       # Cleaning, feature engineering, regression training
 │   │   ├── model.joblib         # Serialized model & encoders bundle
 │   │   └── metrics.json         # Evaluation metrics & targets
 │   └── scripts/
-│       └── seed_db.py           # Loads CSV, seeds ATMs, records, demo user & alerts
+│       └── seed_db.py           # Legacy ORM-table seeding utility
 └── frontend/
-    ├── .env                     # VITE_API_URL=http://localhost:8000
     ├── Dockerfile               # Production multi-stage build with Nginx
     ├── package.json             # React, Vite, Axios, React Router, Plotly, Lucide
     ├── src/
@@ -106,7 +107,9 @@ Kosh Flow/
     │   │   └── ProtectedRoute.jsx # Route guard for authenticated pages
     │   ├── pages/
     │   │   ├── LoginPage.jsx    # Centered login card with demo fill helper
-    │   │   ├── DashboardPage.jsx# 4 KPI cards, Plotly demand chart, refill table
+    │   │   ├── DashboardPage.jsx# Dataset-backed KPIs, filters, charts, and risk table
+    │   │   ├── DemoNetworkPage.jsx # ATM and forecast explorer
+    │   │   ├── DemoAnalyticsPage.jsx # Historical analytics and reports
     │   │   ├── PlanPage.jsx     # Suggested refills & OR-Tools route itinerary
     │   │   ├── ModelPage.jsx    # 3 metric cards & target validation note
     │   │   └── AboutPage.jsx    # Pipeline walkthrough & strategic goals
@@ -119,10 +122,21 @@ Kosh Flow/
 ## ⚡ Quick Start & Run Commands
 
 ### 1. Database Configuration
-Edit [`backend/.env`](file:///c:/Users/laksh/Downloads/Kosh%20Flow/backend/.env) with your MySQL credentials:
+Configure the backend environment with the MySQL connection settings and JWT secret provided by your deployment environment. Do not commit credentials:
 ```env
+<<<<<<< HEAD
 
 *(If MySQL is not currently connected, Koshflow automatically uses its built-in SQLite engine at `backend/koshflow.db` so we  can develop and test immediately without errors.)*
+=======
+DB_HOST=<mysql-host>
+DB_PORT=<mysql-port>
+DB_USER=<mysql-user>
+DB_PASSWORD=<mysql-password>
+DB_NAME=<mysql-database>
+JWT_SECRET=<strong-secret>
+JWT_EXPIRE_MINUTES=1440
+```
+>>>>>>> 5df26d1 (Update dashboard KPIs, forecast filters and ATM table)
 
 ### 2. Backend Setup
 In my terminal:
@@ -137,15 +151,14 @@ source .venv/bin/activate
 # 2. Install backend dependencies
 pip install -r backend/requirements.txt
 
-# 3. Train the ML forecasting model (outputs model.joblib and metrics.json)
-python backend/ml/train_model.py
+# 3. Import the cleaned data into the configured MySQL database
+python backend/2_load_to_mysql.py
 
-# 4. Seed the database (loads CSV data, creates demo user, and sets initial alerts)
-python backend/scripts/seed_db.py
-
-# 5. Start the FastAPI backend server
+# 4. Start the FastAPI backend server
 uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
+- The importer adds data to `ds_atms`, `ds_demand_records`, and `ds_forecasts` in batches, skipping existing natural keys; it does not drop tables or delete existing rows.
+- The backend loads the existing `backend/ml/model.joblib` model. Do not retrain it as part of deployment.
 - API Swagger Documentation: `http://localhost:8000/docs`
 - Health check: `http://localhost:8000/health`
 
@@ -173,11 +186,21 @@ The database comes pre-seeded with an operator account:
 
 ## 🌐 Public Read-Only Demo
 
-The login page remains the entry page. Visitors can select **Explore Demo Dashboard** to enter a separate public demo session without a JWT or database account. Demo sessions persist across refreshes and display a read-only indicator.
+The login page's **Explore Demo Dashboard** button opens a public, read-only session without requiring an administrator JWT. The dashboard reads actual database-backed results through these GET endpoints:
+- `GET /api/dashboard/summary`
+- `GET /api/atms`
+- `GET /api/analytics`
+- `GET /api/forecast`
+- `GET /api/atms/{atm_id}/history`
+- Additional read-only alert, replenishment, and model-metric endpoints under `/api`.
 
-The public demo API is isolated under `GET /demo/...` and serves synthetic in-memory examples only. It supports the overview, ATM and individual/regional forecast explorer, shortage risk, replenishment recommendations, model metrics, alerts, historical analytics, and CSV report download. Demo requests are restricted to an explicit frontend GET allowlist, and the backend demo router has no database dependency or write endpoints. Existing non-demo API routes and admin sign-in/JWT behavior are unchanged. No new environment variables are required.
+The existing `/demo/...` endpoints remain as compatibility routes and now use the same dataset-backed service. Demo requests are restricted to GET operations; existing administrator authentication and JWT-protected routes remain available.
 
-To run the isolated demo endpoint tests from the `backend` directory:
+The active inference artifact is `backend/ml/model.joblib` (a `GradientBoostingRegressor` bundle with 19 expected features). Historical dashboard forecasts come from `ds_forecasts`; future forecasts are calculated from the loaded model and recent observed features. The API reports an error instead of returning invented predictions if the model is missing or incompatible. Cash-out reduction is not measured by the current model.
+
+For Vercel, set `VITE_API_URL` to the deployed Render API base URL and redeploy the frontend. Configure the MySQL and JWT environment variables only in Render; keep the Aiven database persistent and do not put credentials in frontend settings. No Vercel or Render deployment is performed by the local commands above.
+
+To run the dataset-backed endpoint and inference tests from the `backend` directory:
 ```bash
 python -m unittest test_demo
 ```
@@ -199,7 +222,7 @@ This tests:
 6. `GET /dashboard/refill-atms` — Cash-left and predicted run-out table.
 7. `GET /plan` — Suggested refill amounts with risk level badges.
 8. `POST /plan/route` — Google OR-Tools multi-stop TSP route (Depot $\rightarrow$ ATMs $\rightarrow$ Depot) with distances and duration.
-9. `GET /model/metrics` — Target validation checks ($\ge 85\%$ accuracy and $\ge 70\%$ cash-out reduction).
+9. `GET /model/metrics` — Model metrics (cash-out reduction is not measured).
 10. `GET /alerts` — Top notification bar alerts.
 
 ---

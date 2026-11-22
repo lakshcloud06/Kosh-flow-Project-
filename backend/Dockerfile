@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source code, ML scripts, and seed scripts
 COPY app/ ./app/
 COPY ml/ ./ml/
+COPY outputs/metrics.json ./outputs/metrics.json
 COPY scripts/ ./scripts/
 COPY .env.example .env
 

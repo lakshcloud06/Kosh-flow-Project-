@@ -6,9 +6,6 @@ from app.config import settings
 
 logger = logging.getLogger("koshflow.database")
 
-if not settings.DB_HOST or settings.DB_HOST == "localhost":
-    raise RuntimeError("Aiven DB_HOST is missing or incorrectly configured.")
-
 DATABASE_URL = (
     f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}"
     f"@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
@@ -34,17 +31,18 @@ Base = declarative_base()
 
 
 def init_db():
+    if not settings.DB_HOST or settings.DB_HOST == "localhost":
+        raise RuntimeError("Aiven DB_HOST is missing or incorrectly configured.")
     import app.models
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created or verified successfully.")
 
 
 def get_db():
+    if not settings.DB_HOST or settings.DB_HOST == "localhost":
+        raise RuntimeError("Aiven DB_HOST is missing or incorrectly configured.")
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
-
-init_db()

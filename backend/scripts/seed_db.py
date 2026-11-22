@@ -142,9 +142,36 @@ def seed_database():
         target_date = date.today()
         atms = db.query(ATM).all()
         for atm in atms:
+            history = db.query(DemandRecord).filter(
+                DemandRecord.atm_id == atm.id
+            ).order_by(DemandRecord.date.desc()).limit(30).all()
+            history.reverse()
+            if len(history) < 7 or any(record.withdrawal_amount is None for record in history):
+                raise RuntimeError(f"Insufficient historical demand to forecast ATM {atm.id}.")
+            latest = history[-1]
+            feature_values = (
+                latest.temperature,
+                latest.rainfall,
+                latest.footfall_index,
+                latest.upi_share_pct,
+            )
+            if any(value is None for value in feature_values):
+                raise RuntimeError(f"Missing model features for ATM {atm.id}.")
+            demand_history = [float(record.withdrawal_amount) for record in history]
+            recent_lags = {
+                "lag_1": demand_history[-1],
+                "lag_7": demand_history[-7],
+                "roll_mean_7": sum(demand_history[-7:]) / 7,
+                "temperature": float(latest.temperature),
+                "rainfall": float(latest.rainfall),
+                "footfall_index": float(latest.footfall_index),
+                "upi_share_pct": float(latest.upi_share_pct),
+                "is_holiday": 0,
+                "is_festival": 0,
+            }
             pred = predict_atm_demand(
                 atm.id, atm.city, atm.location_type or "Metro",
-                atm.atm_capacity, atm.nearby_atm_count, target_date
+                atm.atm_capacity, atm.nearby_atm_count, target_date, recent_lags
             )
             risk, days_left = evaluate_risk_level(atm.current_cash, pred)
             if risk in ["high", "medium"]:
